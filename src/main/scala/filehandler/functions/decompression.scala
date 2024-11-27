@@ -6,6 +6,10 @@ import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream
 import java.nio.file.{Files, Paths}
 import scala.util.Try
 import java.io.IOException
+import org.apache.commons.compress.archivers.tar.{TarArchiveEntry, TarArchiveInputStream}
+import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
+import com.github.junrar.Archive
+import com.github.junrar.rarfile.FileHeader
 
 object CompressionHandler {
 
@@ -16,6 +20,7 @@ object CompressionHandler {
     else if (filePath.endsWith(".tar")) "tar"
     else if (filePath.endsWith(".gz")) "gz"
     else if (filePath.endsWith(".bz2")) "bz2"
+    else if (filePath.endsWith(".rar")) "rar"
     else "unknown"
   }
 
@@ -28,6 +33,7 @@ object CompressionHandler {
       case "tar.gz" | "tar" => decompressTar(filePath, outputDir)
       case "gz" => decompressGz(filePath, outputDir)
       case "bz2" => decompressBz2(filePath, outputDir)
+      case "rar" => decompress(filePath, outputDir)
       case _ => throw new IllegalArgumentException(s"Unsupported file type for $filePath")
     }
   }
@@ -88,8 +94,14 @@ object CompressionHandler {
 
   // Decompress a TAR file
   def decompressTar(filePath: String, outputDir: String): Unit = {
-    // Use a tar library like 'org.apache.commons.compress' for tar decompression
-    println(s"Decompressing TAR file: $filePath (Not Implemented)")
+    // val fileStream = new FileInputStream(filePath)
+    // val tarStream =  if (filePath.endsWith(".gz") || filePath.endsWith(".tgz"))
+    // {
+    //   new TarArchiveInputStream(
+    //     new 
+    //   )
+    // }
+    println("not supported")
   }
 
   // Decompress a GZ file
@@ -130,4 +142,29 @@ object CompressionHandler {
       outStream.close()
     }
   }
+
+
+  def decompressRar(filePath: String, outputDir: String): Unit = {
+    val rarFile = new Archive(new File(filePath))
+    try {
+      val headers = rarFile.getFileHeaders
+      headers.forEach { header =>
+        val outputFile = new File(outputDir, header.getFileNameString.trim)
+        if (header.isDirectory) {
+          outputFile.mkdirs()
+        } else {
+          outputFile.getParentFile.mkdirs()
+          val outputStream = new BufferedOutputStream(new FileOutputStream(outputFile))
+          try {
+            rarFile.extractFile(header, outputStream)
+          } finally {
+            outputStream.close()
+          }
+        }
+      }
+    } finally {
+      rarFile.close()
+    }
+  }
+
 }
