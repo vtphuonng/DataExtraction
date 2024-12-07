@@ -5,7 +5,7 @@ import java.util.zip.{GZIPInputStream, ZipEntry, ZipInputStream}
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream
 import java.nio.file.{Files, Paths}
 import scala.util.Try
-import java.io.IOException
+import java.io.{File, FileNotFoundException, BufferedOutputStream, FileOutputStream, IOException}
 import org.apache.commons.compress.archivers.tar.{TarArchiveEntry, TarArchiveInputStream}
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
 import com.github.junrar.Archive
@@ -94,15 +94,40 @@ object CompressionHandler {
 
   // Decompress a TAR file
   def decompressTar(filePath: String, outputDir: String): Unit = {
-    // val fileStream = new FileInputStream(filePath)
-    // val tarStream =  if (filePath.endsWith(".gz") || filePath.endsWith(".tgz"))
-    // {
-    //   new TarArchiveInputStream(
-    //     new 
-    //   )
-    // }
-    println("not supported")
+    val fileStream = new FileInputStream(filePath)
+    val tarStream = if (filePath.endsWith(".gz") || filePath.endsWith(".tgz")) {
+      new TarArchiveInputStream(new GzipCompressorInputStream(new BufferedInputStream(fileStream)))
+    } else {
+      new TarArchiveInputStream(new BufferedInputStream(fileStream))
+    }
+
+    try {
+      var entry: TarArchiveEntry = tarStream.getNextEntry.asInstanceOf[TarArchiveEntry]
+      while (entry != null) {
+        val outputFile = new File(outputDir, entry.getName)
+        if (entry.isDirectory) {
+          outputFile.mkdirs()
+        } else {
+          outputFile.getParentFile.mkdirs()
+          val outputStream = new BufferedOutputStream(new FileOutputStream(outputFile))
+          try {
+            val buffer = new Array[Byte](1024)
+            var len = tarStream.read(buffer)
+            while (len != -1) {
+              outputStream.write(buffer, 0, len)
+              len = tarStream.read(buffer)
+            }
+          } finally {
+            outputStream.close()
+          }
+        }
+        entry = tarStream.getNextEntry.asInstanceOf[TarArchiveEntry]
+      }
+    } finally {
+      tarStream.close()
+    }
   }
+
 
   // Decompress a GZ file
   def decompressGz(filePath: String, outputDir: String): Unit = {
@@ -145,25 +170,56 @@ object CompressionHandler {
 
 
   def decompressRar(filePath: String, outputDir: String): Unit = {
-    val rarFile = new Archive(new File(filePath))
+    val rarFile: Archive = try {
+      new Archive(new File(filePath))
+    } catch {
+      case e: FileNotFoundException =>
+        println(s"File not found: $filePath")
+        return
+      case e: IOException =>
+        println(s"Unable to read the RAR file: $filePath. Error: ${e.getMessage}")
+        return
+      case e: Exception =>
+        println(s"An unexpected error occurred while opening the RAR file: $e")
+        return
+    }
+
     try {
       val headers = rarFile.getFileHeaders
       headers.forEach { header =>
-        val outputFile = new File(outputDir, header.getFileNameString.trim)
-        if (header.isDirectory) {
-          outputFile.mkdirs()
-        } else {
-          outputFile.getParentFile.mkdirs()
-          val outputStream = new BufferedOutputStream(new FileOutputStream(outputFile))
-          try {
-            rarFile.extractFile(header, outputStream)
-          } finally {
-            outputStream.close()
+        try {
+          val outputFile = new File(outputDir, header.getFileNameString.trim)
+          if (header.isDirectory) {
+            if (!outputFile.mkdirs() && !outputFile.exists()) {
+              throw new IOException(s"Failed to create directory: ${outputFile.getAbsolutePath}")
+            }
+          } else {
+            outputFile.getParentFile.mkdirs() // Ensure parent directory exists
+            val outputStream = new BufferedOutputStream(new FileOutputStream(outputFile))
+            try {
+              rarFile.extractFile(header, outputStream)
+            } catch {
+              case e: IOException =>
+                println(s"Error extracting file ${header.getFileNameString.trim}: ${e.getMessage}")
+            } finally {
+              outputStream.close()
+            }
           }
+        } catch {
+          case e: Exception =>
+            println(s"Error processing header: ${header.getFileNameString.trim}. Error: ${e.getMessage}")
         }
       }
+    } catch {
+      case e: IOException =>
+        println(s"Error reading headers from the RAR file: ${e.getMessage}")
     } finally {
-      rarFile.close()
+      try {
+        rarFile.close()
+      } catch {
+        case e: IOException =>
+          println(s"Error closing the RAR file: ${e.getMessage}")
+      }
     }
   }
 
